@@ -1,5 +1,5 @@
 """An OpenAI Gym Super Mario Bros. environment that randomly selects levels."""
-import gym
+import gymnasium as gym
 import numpy as np
 from .smb_env import SuperMarioBrosEnv
 
@@ -13,11 +13,9 @@ class SuperMarioBrosRandomStagesEnv(gym.Env):
     # the legal range of rewards for each step
     reward_range = SuperMarioBrosEnv.reward_range
 
-    # observation space for the environment is static across all instances
-    observation_space = SuperMarioBrosEnv.observation_space
-
-    # action space is a bitmap of button press values for the 8 NES buttons
-    action_space = SuperMarioBrosEnv.action_space
+    # observation/action spaces must be Gymnasium spaces
+    observation_space = gym.spaces.Box(low=0, high=255, shape=(240, 256, 3), dtype=np.uint8)
+    action_space = gym.spaces.Discrete(256)
 
     def __init__(self, rom_mode='vanilla', stages=None):
         """
@@ -31,8 +29,12 @@ class SuperMarioBrosRandomStagesEnv(gym.Env):
             None
 
         """
-        # create a dedicated random number generator for the environment
-        self.np_random = np.random.RandomState()
+        # Dedicated RNG for stage selection.
+        # Use RandomState to preserve historical determinism expected by tests
+        # (e.g., seed=1 -> world=6, stage=4).
+        self._stage_rng = np.random.RandomState()
+        # Expose for legacy / unit tests.
+        self.np_random = self._stage_rng
         # setup the environments
         self.envs = []
         # iterate over the worlds in the game, i.e., {1, ..., 8}
@@ -60,55 +62,38 @@ class SuperMarioBrosRandomStagesEnv(gym.Env):
         return self.env.screen
 
     def seed(self, seed=None):
-        """
-        Set the seed for this environment's random number generator.
-
-        Returns:
-            list<bigint>: Returns the list of seeds used in this env's random
-              number generators. The first value in the list should be the
-              "main" seed, or the value which a reproducer should pass to
-              'seed'. Often, the main seed equals the provided 'seed', but
-              this won't be true if seed=None, for example.
-
-        """
-        # if there is no seed, return an empty list
+        """Legacy seeding API."""
         if seed is None:
             return []
-        # set the random number seed for the NumPy random number generator
-        self.np_random.seed(seed)
-        # return the list of seeds used by RNG(s) in the environment
+        self._stage_rng.seed(seed)
         return [seed]
 
     def reset(self, seed=None, options=None, return_info=None):
-        """
-        Reset the state of the environment and returns an initial observation.
+        """Reset the env and return (obs, info) per Gymnasium's API."""
+        # Gymnasium bookkeeping (may overwrite `self.np_random`).
+        super().reset(seed=seed, options=options)
+        # Restore legacy attribute and seed our dedicated RNG.
+        self.np_random = self._stage_rng
+        if seed is not None:
+            self.seed(seed)
 
-        Args:
-            seed (int): an optional random number seed for the next episode
-            options (dict): An optional options for resetting the environment.
-                Can include the key 'stages' to override the random set of
-                stages to sample from.
-            return_info (any): unused
-
-        Returns:
-            state (np.ndarray): next frame as a result of the given action
-
-        """
-        # Seed the RNG for this environment.
-        self.seed(seed)
         # Get the collection of stages to sample from
         stages = self.stages
         if options is not None and 'stages' in options:
             stages = options['stages']
+
         # Select a random level
         if stages is not None and len(stages) > 0:
-            level = self.np_random.choice(stages)
+            level = self._stage_rng.choice(stages)
+            if not isinstance(level, str):
+                level = str(level)
             world, stage = level.split('-')
             world = int(world) - 1
             stage = int(stage) - 1
         else:
-            world = self.np_random.randint(1, 9) - 1
-            stage = self.np_random.randint(1, 5) - 1
+            world = int(self._stage_rng.randint(1, 9)) - 1
+            stage = int(self._stage_rng.randint(1, 5)) - 1
+
         # Set the environment based on the world and stage.
         self.env = self.envs[world][stage]
         # reset the environment

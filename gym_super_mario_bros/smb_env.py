@@ -2,6 +2,8 @@
 from collections import defaultdict
 from nes_py import NESEnv
 import numpy as np
+import gymnasium as gym
+from gymnasium import spaces
 from ._roms import decode_target
 from ._roms import rom_path
 from ._roms.rom_compat import ensure_rom_ok
@@ -46,8 +48,14 @@ _ENEMY_TYPE_ADDRESSES = [0x0016, 0x0017, 0x0018, 0x0019, 0x001A]
 _STAGE_OVER_ENEMIES = np.array([0x2D, 0x31])
 
 
-class SuperMarioBrosEnv(NESEnv):
+class SuperMarioBrosEnv(NESEnv, gym.Env):
     """An environment for playing Super Mario Bros with OpenAI Gym."""
+
+    # Gymnasium spaces must be from `gymnasium.spaces`, not `gym.spaces`.
+    # nes-py provides these as `gym.spaces` on older versions, so we mirror the
+    # shape/dtype into Gymnasium spaces here.
+    observation_space = spaces.Box(low=0, high=255, shape=(240, 256, 3), dtype=np.uint8)
+    action_space = spaces.Discrete(256)
 
     # the legal range of rewards for each step
     reward_range = (-15, 15)
@@ -56,7 +64,9 @@ class SuperMarioBrosEnv(NESEnv):
     # We wrap reset/step to match what Gym wrappers want.
 
     def reset(self, seed=None, options=None, return_info=None):
-        """Reset and return (obs, info) per the Gym 0.26+ API."""
+        """Reset and return (obs, info) per the Gymnasium API."""
+        # Initialize Gymnasium's seeding / episode bookkeeping.
+        gym.Env.reset(self, seed=seed, options=options)
         obs = super(SuperMarioBrosEnv, self).reset(seed=seed, options=options, return_info=return_info)
         return obs, {}
 
@@ -183,10 +193,10 @@ class SuperMarioBrosEnv(NESEnv):
     @property
     def _left_x_position(self):
         """Return the number of pixels from the left of the screen."""
-        # TODO: resolve RuntimeWarning: overflow encountered in ubyte_scalars
-        # subtract the left x position 0x071c from the current x 0x86
-        # return (self.ram[0x86] - self.ram[0x071c]) % 256
-        return np.uint8(int(self.ram[0x86]) - int(self.ram[0x071c])) % 256
+        # Historically this was `(self.ram[0x86] - self.ram[0x071c]) % 256`.
+        # On NumPy 2.x, constructing `np.uint8` from a negative Python int can
+        # raise `OverflowError`, so compute the wrap using Python ints first.
+        return np.uint8((int(self.ram[0x86]) - int(self.ram[0x071c])) % 256)
 
     @property
     def _y_pixel(self):
@@ -455,6 +465,26 @@ class SuperMarioBrosEnv(NESEnv):
             x_pos=self._x_position,
             y_pos=self._y_position,
         )
+
+    def seed(self, seed=None):
+        """Legacy seeding API used by nes-py during reset.
+
+        Gymnasium uses a NumPy `Generator` for `np_random` which doesn't expose
+        `.seed()`. nes-py (and older Gym APIs) expect `env.seed(seed)` to work,
+        so we translate by creating a new Generator when needed.
+        """
+        if seed is None:
+            return []
+        # If Gymnasium already created a Generator, reseed by replacement.
+        if isinstance(getattr(self, "np_random", None), np.random.Generator):
+            self.np_random = np.random.default_rng(seed)
+        else:
+            # Fall back to older RandomState-like interface if present.
+            try:
+                self.np_random.seed(seed)  # type: ignore[attr-defined]
+            except Exception:
+                self.np_random = np.random.default_rng(seed)
+        return [seed]
 
 
 # explicitly define the outward facing API of this module
