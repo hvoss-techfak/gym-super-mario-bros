@@ -73,16 +73,47 @@ class SuperMarioBrosEnv(NESEnv, gym.Env):
         """Reset and return (obs, info) per the Gymnasium API."""
         # Initialize Gymnasium's seeding / episode bookkeeping.
         gym.Env.reset(self, seed=seed, options=options)
-        obs = super(SuperMarioBrosEnv, self).reset(seed=seed, options=options, return_info=return_info)
-        return obs, {}
+
+        # nes-py has historically implemented the pre-Gymnasium reset signature.
+        # Newer versions may accept `seed`, but not `options`/`return_info`.
+        # Some newer versions may already return (obs, info).
+        # Use feature detection so we're compatible across versions.
+        try:
+            out = super(SuperMarioBrosEnv, self).reset(seed=seed, options=options, return_info=return_info)
+        except TypeError:
+            try:
+                out = super(SuperMarioBrosEnv, self).reset(seed=seed)
+            except TypeError:
+                out = super(SuperMarioBrosEnv, self).reset()
+
+        # Pass through Gymnasium-style (obs, info).
+        if isinstance(out, tuple) and len(out) == 2:
+            obs, info = out
+            # Ensure info is a dict for downstream expectations.
+            return obs, (info if isinstance(info, dict) else {})
+
+        # Legacy nes-py: returns observation only.
+        return out, {}
 
     def step(self, action):
         """Step and return (obs, reward, terminated, truncated, info)."""
-        obs, reward, done, info = super(SuperMarioBrosEnv, self).step(action)
-        terminated = bool(done)
-        truncated = False
-        return obs, reward, terminated, truncated, info
+        out = super(SuperMarioBrosEnv, self).step(action)
 
+        # Legacy nes-py: (obs, reward, done, info)
+        if isinstance(out, tuple) and len(out) == 4:
+            obs, reward, done, info = out
+            terminated = bool(done)
+            truncated = False
+            return obs, reward, terminated, truncated, info
+
+        # Gymnasium-style: (obs, reward, terminated, truncated, info)
+        if isinstance(out, tuple) and len(out) == 5:
+            obs, reward, terminated, truncated, info = out
+            return obs, reward, bool(terminated), bool(truncated), info
+
+        raise ValueError(f"Unexpected step() return from nes-py env: {type(out)!r} / {out!r}")
+
+    # --- existing code ---
     def __init__(self, rom_mode='vanilla', lost_levels=False, target=None):
         """
         Initialize a new Super Mario Bros environment.
@@ -421,17 +452,18 @@ class SuperMarioBrosEnv(NESEnv, gym.Env):
         self._time_last = self._time
         self._x_position_last = self._x_position
 
-    def _did_step(self, done):
+    def _did_step(self, terminated, truncated=None):
+        """Handle any RAM hacking after a step occurs.
+
+        Newer nes-py versions call this as `_did_step(terminated, truncated)`.
+        Older versions call it as `_did_step(done)`.
         """
-        Handle any RAM hacking after a step occurs.
+        # Support both calling conventions.
+        if truncated is None:
+            done = bool(terminated)
+        else:
+            done = bool(terminated) or bool(truncated)
 
-        Args:
-            done: whether the done flag is set to true
-
-        Returns:
-            None
-
-        """
         # if done flag is set a reset is incoming anyway, ignore any hacking
         if done:
             return

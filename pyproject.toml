@@ -37,7 +37,7 @@ classifiers = [
 dependencies = [
     "gymnasium",
     "matplotlib>=2.0.2",
-    "nes-py>=4.0.0",
+    "nes-py",
     "numpy>=2.4.1",
     "opencv-python>=3.4.0.12",
     "pygame>=2.6.1",
@@ -61,6 +61,9 @@ exclude = ["tests", "tests.*"]
 
 [tool.setuptools.package-data]
 gym_super_mario_bros = ["_roms/*.nes"]
+
+[tool.uv.sources]
+nes-py = { git = "https://github.com/ItaiBear/nes-py.git", rev = "bf202fc4b70ad22e834f5bbb3f1d8b893983015d" }
 
 [project.optional-dependencies]
 test = ["pytest"]
