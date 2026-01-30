@@ -1,6 +1,12 @@
 """An OpenAI Gym environment for Super Mario Bros. and Lost Levels."""
 from collections import defaultdict
+
 from nes_py import NESEnv
+
+# Remove pickle-based checkpointing here; use shared checkpoint dataclass.
+
+from ._checkpoint import SmbCheckpoint
+
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
@@ -485,6 +491,75 @@ class SuperMarioBrosEnv(NESEnv, gym.Env):
             except Exception:
                 self.np_random = np.random.default_rng(seed)
         return [seed]
+
+    # MARK: Checkpointing
+
+    def save_checkpoint(self) -> SmbCheckpoint:
+        """Return a checkpoint capturing the current emulator + env state.
+
+        This implementation is fully in-process and does not rely on pickling or
+        on private nes-py C APIs.
+        """
+        # Ensure internal backup reflects the exact current state.
+        self._backup()
+
+        # Snapshot visible state buffers for verification / fast reload.
+        ram = bytes(self.ram.tobytes())
+        screen = bytes(self.screen.tobytes())
+        controllers = b"".join(bytes(c.tobytes()) for c in self.controllers)
+
+        payload = ram + screen + controllers
+
+        return SmbCheckpoint(
+            rom_path=getattr(self, '_rom_path', ''),
+            target_world=self._target_world,
+            target_stage=self._target_stage,
+            target_area=self._target_area,
+            time_last=int(self._time_last),
+            x_position_last=int(self._x_position_last),
+            _payload=payload,
+        )
+
+    def load_checkpoint(self, checkpoint: SmbCheckpoint):
+        """Restore the environment to a previously saved checkpoint."""
+        if not isinstance(checkpoint, SmbCheckpoint):
+            raise TypeError('checkpoint must be an SmbCheckpoint')
+
+        if (
+            checkpoint.target_world != self._target_world
+            or checkpoint.target_stage != self._target_stage
+            or checkpoint.target_area != self._target_area
+        ):
+            raise ValueError('checkpoint target does not match this environment')
+
+        # Restore the emulator state using nes-py's backup slot.
+        # We first restore to the last backup and then overwrite the exposed
+        # buffers and re-backup, ensuring the backup slot matches.
+        self._restore()
+
+        # Unpack payload: ram (2048) + screen (240*256*3) + controllers (2 bytes)
+        ram_size = 2048
+        screen_size = 240 * 256 * 3
+        controllers_size = len(self.controllers)  # each controller is 1 byte
+
+        blob = checkpoint._payload
+        if len(blob) != ram_size + screen_size + controllers_size:
+            raise ValueError('checkpoint payload incompatible with this build')
+
+        ram_blob = blob[:ram_size]
+        screen_blob = blob[ram_size:ram_size + screen_size]
+        ctrl_blob = blob[ram_size + screen_size:]
+
+        self.ram[:] = np.frombuffer(ram_blob, dtype=np.uint8)
+        self.screen[:] = np.frombuffer(screen_blob, dtype=np.uint8).reshape(self.screen.shape)
+        for i in range(len(self.controllers)):
+            self.controllers[i][0] = ctrl_blob[i]
+
+        # Re-backup so future restores return to this checkpoint.
+        self._backup()
+
+        self._time_last = int(checkpoint.time_last)
+        self._x_position_last = int(checkpoint.x_position_last)
 
 
 # explicitly define the outward facing API of this module

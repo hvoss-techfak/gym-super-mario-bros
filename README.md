@@ -68,6 +68,48 @@ convenience.
 **NOTE:** remove calls to `render` in training code for a nontrivial
 speedup.
 
+### Checkpointing (Save/Load Savepoints)
+
+`gym-super-mario-bros` supports emulator savepoints (similar to save-states in
+emulators) via two methods on the base environment:
+
+- `save_checkpoint()` → returns an checkpoint object
+- `load_checkpoint(checkpoint)` → restores the environment back to that point
+
+This is useful for planning, evaluation from fixed states, or implementing
+retry logic from specific moments.
+
+```python
+import gym_super_mario_bros
+
+env = gym_super_mario_bros.make("SuperMarioBros-v0")
+obs, info = env.reset(seed=0)
+
+# If you wrap the env (e.g. JoypadSpace), the checkpoint methods live on the
+# underlying base env:
+base_env = env.unwrapped
+
+# Advance a bit, then create a savepoint
+for _ in range(50):
+    env.step(0)
+checkpoint = base_env.save_checkpoint()
+
+# Do something risky
+for _ in range(20):
+    env.step(1)
+
+# Rewind back to the savepoint
+base_env.load_checkpoint(checkpoint)
+
+env.close()
+```
+
+**Notes / limitations**
+
+- Checkpoints are intended to be used in-process. Treat them as opaque tokens.
+- Loading a checkpoint validates that it matches the current environment’s
+  level target (e.g. `SuperMarioBros-1-1-*` vs `SuperMarioBros-v0`).
+
 ### Command Line
 
 `gym_super_mario_bros` features a command line interface for playing
