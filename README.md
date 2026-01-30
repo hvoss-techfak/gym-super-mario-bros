@@ -26,11 +26,12 @@ Entertainment System (NES) using
 
 ## Installation
 
-The preferred installation of `gym-super-mario-bros` is from `pip`:
-
+~~The preferred installation of `gym-super-mario-bros` is from `pip`:~~
+As the original pypi version is very old and unmaintained, please install this version using pip with git from this repository:
 ```shell
-pip install gym-super-mario-bros
+pip install git+https://github.com/hvoss-techfak/gym-super-mario-bros
 ```
+
 
 ## Usage
 
