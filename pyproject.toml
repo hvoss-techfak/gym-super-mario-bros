@@ -51,8 +51,8 @@ dependencies = [
 gym_super_mario_bros = "gym_super_mario_bros._app.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/Kautenja/gym-super-mario-bros"
-Repository = "https://github.com/Kautenja/gym-super-mario-bros"
+Homepage = "https://github.com/hvoss-techfak/gym-super-mario-bros"
+Repository = "https://github.com/hvoss-techfak/gym-super-mario-bros"
 
 [tool.setuptools]
 include-package-data = true
