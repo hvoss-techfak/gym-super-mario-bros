@@ -63,7 +63,7 @@ exclude = ["tests", "tests.*"]
 gym_super_mario_bros = ["_roms/*.nes"]
 
 [tool.uv.sources]
-nes-py = { git = "https://github.com/ItaiBear/nes-py.git", rev = "bf202fc4b70ad22e834f5bbb3f1d8b893983015d" }
+nes-py = { git = "https://github.com/hvoss-techfak/nes-py", rev = "bf202fc4b70ad22e834f5bbb3f1d8b893983015d" }
 
 [project.optional-dependencies]
 test = ["pytest"]

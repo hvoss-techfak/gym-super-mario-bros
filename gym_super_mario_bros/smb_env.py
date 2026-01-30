@@ -102,14 +102,15 @@ class SuperMarioBrosEnv(NESEnv, gym.Env):
         # Legacy nes-py: (obs, reward, done, info)
         if isinstance(out, tuple) and len(out) == 4:
             obs, reward, done, info = out
-            terminated = bool(done)
+            terminated = bool(done) or bool(self._get_done())
             truncated = False
             return obs, reward, terminated, truncated, info
 
         # Gymnasium-style: (obs, reward, terminated, truncated, info)
         if isinstance(out, tuple) and len(out) == 5:
             obs, reward, terminated, truncated, info = out
-            return obs, reward, bool(terminated), bool(truncated), info
+            terminated = bool(terminated) or bool(self._get_done())
+            return obs, reward, terminated, bool(truncated), info
 
         raise ValueError(f"Unexpected step() return from nes-py env: {type(out)!r} / {out!r}")
 
