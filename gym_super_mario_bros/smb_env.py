@@ -4,6 +4,27 @@ from nes_py import NESEnv
 import numpy as np
 from ._roms import decode_target
 from ._roms import rom_path
+from ._roms.rom_compat import ensure_rom_ok
+
+# --- nes-py compatibility patch ---
+# Some nes-py versions use numpy scalars when computing ROM sizes.
+# On newer NumPy/Python combinations this can raise OverflowError when those
+# numpy scalars participate in index arithmetic (e.g. uint8 * 1024).
+# We patch ROM.prg_rom_size/chr_rom_size to always return Python ints.
+try:
+    import nes_py._rom as _nes_rom
+
+    def _prg_rom_size_pyint(self):  # type: ignore[override]
+        return 16 * int(self.header[4])
+
+    def _chr_rom_size_pyint(self):  # type: ignore[override]
+        return 8 * int(self.header[5])
+
+    setattr(_nes_rom.ROM, 'prg_rom_size', property(_prg_rom_size_pyint))
+    setattr(_nes_rom.ROM, 'chr_rom_size', property(_chr_rom_size_pyint))
+except Exception:
+    # If nes-py changes its internals, we still want to import and run.
+    pass
 
 
 # create a dictionary mapping value of status register to string names
@@ -31,6 +52,21 @@ class SuperMarioBrosEnv(NESEnv):
     # the legal range of rewards for each step
     reward_range = (-15, 15)
 
+    # Gym 0.26+ expects the "new" API. nes-py still implements the legacy API.
+    # We wrap reset/step to match what Gym wrappers want.
+
+    def reset(self, seed=None, options=None, return_info=None):
+        """Reset and return (obs, info) per the Gym 0.26+ API."""
+        obs = super(SuperMarioBrosEnv, self).reset(seed=seed, options=options, return_info=return_info)
+        return obs, {}
+
+    def step(self, action):
+        """Step and return (obs, reward, terminated, truncated, info)."""
+        obs, reward, done, info = super(SuperMarioBrosEnv, self).step(action)
+        terminated = bool(done)
+        truncated = False
+        return obs, reward, terminated, truncated, info
+
     def __init__(self, rom_mode='vanilla', lost_levels=False, target=None):
         """
         Initialize a new Super Mario Bros environment.
@@ -48,6 +84,8 @@ class SuperMarioBrosEnv(NESEnv):
         """
         # decode the ROM path based on mode and lost levels flag
         rom = rom_path(lost_levels, rom_mode)
+        # validate ROM header before nes-py touches it
+        rom = ensure_rom_ok(rom)
         # initialize the super object with the ROM path
         super(SuperMarioBrosEnv, self).__init__(rom)
         # set the target world, stage, and area variables
@@ -58,7 +96,7 @@ class SuperMarioBrosEnv(NESEnv):
         # setup a variable to keep track of the last frames x position
         self._x_position_last = 0
         # reset the emulator
-        self.reset()
+        obs, _info = self.reset()
         # skip the start screen
         self._skip_start_screen()
         # create a backup state to restore from on subsequent calls to reset
@@ -139,7 +177,8 @@ class SuperMarioBrosEnv(NESEnv):
     def _x_position(self):
         """Return the current horizontal position."""
         # add the current page 0x6d to the current x
-        return self.ram[0x6d] * 0x100 + self.ram[0x86]
+        # Cast to Python int first to avoid uint8 overflow on newer NumPy.
+        return int(self.ram[0x6d]) * 0x100 + int(self.ram[0x86])
 
     @property
     def _left_x_position(self):
